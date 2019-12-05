@@ -1,11 +1,13 @@
 import * as $ from 'jquery';
-import { bindTo, Events, unbindFrom, updateLayout } from 'databindjs';
+import { bindTo, Events, unbindFrom, updateLayout, utils, addBindingTo } from 'databindjs';
 import template = require('../templates/mainView.mustache');
 import { MainViewModel } from '../viewModels/mainViewModel';
 import { TodoListView } from './todoListView';
 
 
 const ENTER_KEY = 13;
+
+const kebabCase = (str, prefix = '') => (prefix ? [prefix] : []).concat(str.split(/(?=[A-Z])/)).join('-').toLowerCase();
 
 interface MainView extends ReturnType<typeof initialize$MainView> {
 
@@ -29,6 +31,7 @@ function initialize$MainView<T>(inst: T, $el) {
 }
 
 class MainView extends Events {
+    cid = utils.uniqueId('view');
     options = this.initOptions(this.config);
     $el = this.options.$el;
     createNewItem = null as { exec(); };
@@ -43,7 +46,7 @@ class MainView extends Events {
         '-$clearCompleted.toggleClass(hidden)': 'completed.length|not',
         '-$itemWord.toggleClass(hidden)': 'remaining.1|bool',
         '-$itemsWord.toggleClass(hidden)': 'remaining.1|not',
-        '$newTodo.val': 'newTodoTitle',
+        //'$newTodo.val': 'newTodoTitle',
         'itemsListView.items': 'items',
         'itemsListView.filter': 'filterItems',
         '-$newTodo.keypress': '.bind(onKeypress)',
@@ -59,7 +62,29 @@ class MainView extends Events {
     }
 
     initialize() {
-        this.$el.html(template());
+        const $html = $('<div/>').html(template());
+        const selectors = $('[data-bind]', $html).map((index, el) => {
+            const $el = $(el);
+            const nameAndBindings = /(.*)\{(.*)\}/g.exec($el.attr('data-bind'));
+            const propName = nameAndBindings[1];
+            const bindings = utils.reduce(nameAndBindings[2].split(/\s*,\s*/g), (res, p) => {
+                const pair = p.split(/\s*=\s*/g);
+                res[`${propName}.${pair[0]}`] = pair[1];
+
+                return res;
+            }, {});
+            const className = kebabCase(propName, this.cid);
+            $el.toggleClass(className, true);
+    
+            utils.reduce(Object.keys(bindings), (res, key) => {
+                const bindInfo = addBindingTo(this.binding, { [key]: bindings[key] });
+
+                return res;
+            }, el);
+            return [[propName, '.' + className]];
+        }) as any;
+        this.$el.html($html.html());
+        utils.forEach(selectors, ([key, selector]) => this[key] = $(selector, this.$el));
         initialize$MainView(this, this.options.$el);
 
         updateLayout(this.binding);
